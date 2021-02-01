@@ -1,0 +1,179 @@
+---
+title: "Intro to time series wrangling and viz"
+author: "Vanessa Rathbone"
+date: "2/1/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(here)
+library(lubridate)
+library(tsibble)
+library(feasts)
+library(slider)
+
+```
+
+## Read in the data
+
+```{r}
+toolik <- read_csv(here("data", "toolikweather.csv"))
+
+#reading as characters
+#quick plot to check it out if we don't change the characters
+#it sees the dates as characters, not as the same variables
+#dates as characters = NO BUENO
+
+#ggplot(toolik, aes(x = date, y = mean_airtemp)) +
+#geom_line()
+
+```
+
+### Convert this into a tsibble
+
+```{r}
+
+toolik_ts <- toolik %>% 
+  mutate(date = lubridate::mdy(date)) %>% 
+  as_tsibble(key = NULL, index = date)
+```
+
+```{r}
+
+ggplot(data = toolik_ts, aes(x = date, y = mean_airtemp)) +
+  geom_line()
+
+#trend = stationary, no major changes, syclicality = not really obvious if existing at all, seasonality is dominante
+```
+
+## Use index_by() function to aggregate time series information by intervals we specify
+
+```{r}
+#index_by() is the equivalent to group_by() but for time series data
+#group by year, month, max dates, min dates, etc. 
+#calculate the mean air temp 
+
+toolik_month <- toolik_ts %>% 
+  index_by(yr_mo = ~yearmonth(.)) %>% #"~yearmonth(.)" means function of yearmonth across all of the time series (.)
+  summarize(monthly_mean_temp = mean(mean_airtemp, na.rm = TRUE))
+  
+ggplot(data = toolik_month, aes(x = yr_mo, y = monthly_mean_temp)) +
+  geom_line() +
+  facet_wrap(~month(yr_mo, label = TRUE))
+
+```
+
+Aggregate by week
+```{r}
+
+toolik_weekly <- toolik_ts %>% 
+  index_by(weekly = ~yearweek(.)) %>% 
+  summarize(weekly_airtemp = mean(mean_airtemp, na.rm = TRUE),
+            min_airtemp = min(mean_airtemp))
+
+head(toolik_weekly)
+```
+
+## Filtering time series
+
+Use `filter_index()` to specify ranges of time series to keep or exclude.
+
+```{r}
+
+#filter by month/year
+toolik_ts %>% 
+  filter_index("2000-06" ~ "2001-10")
+
+#filter by day
+toolik_ts %>% 
+  filter_index("2006-04-10" ~ "2006-05-15")
+
+```
+
+## Seasonplots
+
+```{r}
+toolik_ts %>% 
+  filter(year(date) > 2014) %>% #or filter_index("2015" ~ "(.)")
+  gg_season(y = mean_airtemp)
+
+toolik_month %>% 
+  gg_season(y = monthly_mean_temp) +
+  theme_light()
+
+#no notable 
+
+```
+
+## Seasonal subseries plot 
+```{r}
+
+toolik_month %>% 
+  gg_subseries(monthly_mean_temp)
+```
+
+## Find moving average
+
+Using the slider package in R
+
+```{r}
+set.seed(2021)
+test <- rnorm(n = 100, mean = 40, sd = 10)
+#made vector test
+
+#look at each observation that the average will be calculated
+slide(test, ~.x, .before = 2, .after = 2)
+
+```
+
+```{r}
+#moving averages for 15 windows
+roll_toolik_15 <- toolik_ts %>% 
+  mutate(ma_15d = as.numeric(slide(toolik_ts$mean_airtemp, 
+                                   mean, 
+                                   .before = 7,
+                                   .after = 7)))
+
+ggplot() +
+  geom_line(data = toolik_ts, aes(x = date, y = mean_airtemp), 
+            size = 0.2, 
+            color = "grey") +
+  geom_line(data = roll_toolik_15, aes(x = date, y = ma_15d)) +
+  theme_minimal()
+```
+
+## Create the ACF (autocorrelation function)
+
+```{r}
+#days time series
+
+toolik_ts %>% 
+  ACF(mean_airtemp) %>% 
+  autoplot()
+
+#lag in months on the x-axis, not a lot of dampening happening. 
+toolik_month %>% 
+  ACF(monthly_mean_temp) %>% 
+  autoplot()
+
+```
+
+## Decomposition by STl
+
+```{r}
+toolik_de <- toolik_month %>% 
+  model(STL(monthly_mean_temp ~ season(window = Inf)))
+
+#not useful because all stored as an STL model
+head(toolik_de)
+
+components(toolik_de) %>% 
+  autoplot()
+
+#notice y-axis is is "free" so be sure to look at that. For example, trend looks like there's variability, but it's only between -6 to -10
+
+```
+

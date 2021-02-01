@@ -1,0 +1,48 @@
+---
+title: "Interactive Rmd"
+author: "Vanessa Rathbone"
+date: "2/1/2021"
+output: html_document
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(palmerpenguins)
+```
+
+
+```{r, flippers, echo= FALSE}
+
+#add two widgets, slider and radio buttons widgets
+
+inputPanel(
+  
+  selectInput(inputId = "pick_spp",
+              label = "Pick your penguin species:",
+              choices = c("Adélie" = "Adelie", "Cool Chinstrap" = "Chinstrap", "Gentoo"), selected = "Gentoo"), 
+              
+  sliderInput(inputId = "pt_size",
+              label = "Set your point size:",
+              min = 1,
+              max = 10,
+              step = 0.5,
+              value = 5)
+  
+)
+
+penguin_set <- reactive({
+  penguins %>% 
+    filter(species == input$pick_spp)
+  
+})
+
+renderPlot({
+  
+  ggplot(data = penguin_set(), aes(x = flipper_length_mm, y = body_mass_g)) +
+    geom_point(size = input$pt_size)
+})
+
+```
+
